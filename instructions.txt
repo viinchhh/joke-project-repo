@@ -1,0 +1,13 @@
+-------------------------------
+| to run jokes.ts             |
+|                             |
+| compile: tsc                |
+|                             |
+|node dist/jokes.js           |
+-------------------------------
+| to run addjokes.ts          |
+|                             |
+| compile: tsc                |
+|                             |
+| node dist/addjokes.js       |
+-------------------------------
