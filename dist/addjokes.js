@@ -12,40 +12,44 @@ class Jokes {
         this.punchline = punchline;
     }
 }
-const results = [];
+const csvJokes = [];
+const jsonJokes = [];
+let filesFinished = 0;
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
+function checkIfFilesFinished() {
+    filesFinished++;
+    if (filesFinished === 2) {
+        console.log(`\nCSV jokes loaded: ${csvJokes.length} | JSON jokes laoded: ${jsonJokes.length}`);
+        startApp();
+    }
+}
 //CSV PARSER
-let csvJokeCount = 0;
 fs.createReadStream('jokebank.csv')
     .pipe(csv())
     .on('data', (data) => {
     const newJoke = new Jokes(Number(data.id), data.joke, data.punchline);
-    results.push(newJoke);
-    csvJokeCount++;
+    csvJokes.push(newJoke);
 })
     .on('end', () => {
-    console.log('CSV file successfully processed');
-    console.log(`Total jokes loaded: ${csvJokeCount}`);
+    console.log('CSV file succesfully loaded');
+    checkIfFilesFinished();
 });
 //JSON PARSER
-let jsonJokeCount = 0;
 const parser = JSONStream.parse('*');
 fs.createReadStream('jokebank.json')
     .pipe(parser)
     .on('data', (data) => {
     const newJoke = new Jokes(Number(data.id), data.joke, data.punchline);
-    results.push(newJoke);
-    jsonJokeCount++;
+    jsonJokes.push(newJoke);
 })
     .on('end', () => {
-    console.log('JSON file successfully proccessed');
-    console.log(`Total jokes loaded: ${jsonJokeCount}`);
-    startApp(results);
+    console.log('JSON file succesfully loaded');
+    checkIfFilesFinished();
 });
-function startApp(alljokes) {
+function startApp() {
     console.log('\n--- ADD JOKES IN JOKE BANK ---');
     console.log('Press 1 to add a joke in CSV');
     console.log('Press 2 to add a joke in JSON');
@@ -54,26 +58,33 @@ function startApp(alljokes) {
         if (choice === '1') {
             rl.question('Enter the joke: ', (uJoke) => {
                 rl.question('Enter the punchline: ', (uPunch) => {
-                    const newId = alljokes.length + 1;
+                    const newId = csvJokes.length + 1;
                     const newEntry = new Jokes(newId, uJoke, uPunch);
                     const csvLine = (`\n${newEntry.id},${newEntry.joke},${newEntry.punchline}`);
                     fs.appendFileSync('jokebank.csv', csvLine);
-                    alljokes.push(newEntry);
+                    csvJokes.push(newEntry);
                     console.log(`\nSuccessfully added joke #${newId}.`);
-                    startApp(alljokes);
+                    startApp();
                 });
             });
         }
         else if (choice === '2') {
             rl.question('Enter the joke: ', (uJoke) => {
                 rl.question('Enter the punchline: ', (uPunch) => {
-                    const newId = alljokes.length + 1;
+                    const newId = jsonJokes.length + 1;
                     const newEntry = new Jokes(newId, uJoke, uPunch);
-                    const jsonLine = (`\n${newEntry.id},${newEntry.joke},${newEntry.punchline}`);
-                    fs.appendFileSync('jokebank.json', jsonLine);
-                    alljokes.push(newEntry);
+                    const rawData = fs.readFileSync('jokebank.json', 'utf-8');
+                    const jsonArray = JSON.parse(rawData);
+                    const newJsonEntry = {
+                        id: newId.toString(),
+                        joke: newEntry.joke,
+                        punchline: newEntry.punchline
+                    };
+                    jsonArray.push(newJsonEntry);
+                    fs.writeFileSync('jokebank.json', JSON.stringify(jsonArray, null, 4));
+                    jsonJokes.push(newEntry);
                     console.log(`\nSuccessfully added joke #${newId}.`);
-                    startApp(alljokes);
+                    startApp();
                 });
             });
         }
