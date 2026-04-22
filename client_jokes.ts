@@ -4,7 +4,7 @@ import readline from 'readline';
 // --- IMPORTANT CONFIGURATION ---
 // If testing on the same computer, '127.0.0.1' works.
 // If testing on a DIFFERENT device, change this to local IP (e.g., '192.168.1.15'). (use ipconfig on cmd)
-const SERVER_IP = '192.168.0.105'; 
+const SERVER_IP = '127.0.0.1'; 
 const PORT = 3000;
 
 const client = new net.Socket();
