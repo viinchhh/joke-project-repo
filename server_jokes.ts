@@ -2,6 +2,9 @@ import * as fs from 'fs';
 import csv from 'csv-parser';
 import * as JSONStream from 'JSONStream';
 import net from 'net';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 let jsonJokeCount = 0;
 let csvJokeCount = 0;
@@ -9,7 +12,7 @@ let filesFinished = 0;
 
 class Jokes {
     id: number;
-    joke: string;   
+    joke: string;
     punchline: string;
 
     constructor(id: number, joke: string, punchline: string) {
@@ -18,6 +21,7 @@ class Jokes {
         this.punchline = punchline;
     }
 }
+
 const csvJokes: Jokes[] = [];
 const jsonJokes: Jokes[] = [];
 
@@ -28,20 +32,24 @@ type UserState = {
 
 const userStates = new Map<net.Socket, UserState>();
 
+function logEvent(event: string, data: any = {}) {
+    console.log(JSON.stringify({ event, ...data }));
+}
+
 function totalJokeCount() {
     filesFinished++;
 
     if (filesFinished === 2) {
-        console.log(`\nTotal jokes loaded: ${csvJokeCount + jsonJokeCount}`);
-        console.log(`CSV jokes loaded: ${csvJokes.length} | JSON jokes loaded: ${jsonJokes.length}`);
+        console.log(`\nTotal jokes Loaded: ${csvJokeCount + jsonJokeCount}`);
+        console.log(`CSV jokes loaded: ${csvJokeCount} | JSON jokes Loaded: ${jsonJokeCount}`);
         startServer();
     }
 }
 
-//CSV PARSER
+// CSV PARSER
 fs.createReadStream('jokebank.csv')
     .pipe(csv())
-    .on('data', (data: { id: number, joke: string, punchline: string}) => {
+    .on('data', (data: { id: number, joke: string, punchline: string }) => {
         const newJoke = new Jokes(Number(data.id), data.joke, data.punchline);
         csvJokes.push(newJoke);
         csvJokeCount++;
@@ -53,77 +61,116 @@ fs.createReadStream('jokebank.csv')
 
 // JSON PARSER
 const parser = JSONStream.parse('*');
+
 fs.createReadStream('jokebank.json')
     .pipe(parser)
-    .on('data', (data: { id: number, joke: string, punchline:string}) => {
+    .on('data', (data: { id: number, joke: string, punchline: string }) => {
         const newJoke = new Jokes(Number(data.id), data.joke, data.punchline);
         jsonJokes.push(newJoke);
-        jsonJokeCount++; 
+        jsonJokeCount++;
     })
     .on('end', () => {
         console.log('JSON file successfully processed');
         totalJokeCount();
     });
 
-//TCP SERVER
+// TCP SERVER
 function startServer() {
     const server = net.createServer((socket) => {
-        console.log(`New connection from ${socket.remoteAddress}`);
-        
+        logEvent('CONNECT', { address: socket.remoteAddress });
+
         userStates.set(socket, { step: 'CHOOSE_BANK' });
 
         const sendMainMenu = () => {
-            socket.write('\n--- CHOOSE YOUR SOURCE OF JOKES ---\n');
-            socket.write('Press 1 for CSV JOKES!\n');
-            socket.write('Press 2 FOR JSON JOKES!\n');
-            socket.write('Press any key other than 1 and 2 to Exit\n\n');
-            socket.write('Which Joke Bank do you want to open?: ');
+            const menu =
+                '\nCHOOSE WHICH JOKE BANK TO ACCESS\n' +
+                '[1] CSV Jokes\n' +
+                '[2] JSON Jokes\n' +
+                'Enter anything else to exit:\n';
+
+            logEvent('RESPONSE_SENT', { type: 'MENU' });
+            socket.write(menu);
         };
 
         sendMainMenu();
 
         socket.on('data', (data) => {
             const input = data.toString().trim();
-            const state = userStates.get(socket);
+            logEvent('REQUEST_RECEIVED', { input });
 
+            const state = userStates.get(socket);
             if (!state) return;
 
             if (state.step === 'CHOOSE_BANK') {
-                if (input === '1') {
-                    state.selectedBank = csvJokes;
+                if (input === '1' || input === '2') {
+                    state.selectedBank = input === '1' ? csvJokes : jsonJokes;
                     state.step = 'CHOOSE_ID';
-                    socket.write(`\nEnter a number from 1 to ${state.selectedBank.length}: `);
-                } else if (input === '2') {
-                    state.selectedBank = jsonJokes;
-                    state.step = 'CHOOSE_ID';
-                    socket.write(`\nEnter a number from 1 to ${state.selectedBank.length}: `);
+
+                    logEvent('RESPONSE_SENT', {
+                        type: 'PROMPT_ID',
+                        max: state.selectedBank.length
+                    });
+
+                    socket.write(
+                        `\nEnter a number from 1 to ${state.selectedBank.length}:\n`
+                    );
                 } else {
-                    socket.write('\nDon\'t forget to smile! :>\n');
+                    logEvent('RESPONSE_SENT', { type: 'EXIT' });
+                    socket.write('Goodbye!\n');
                     socket.end();
                 }
             } 
             else if (state.step === 'CHOOSE_ID') {
-                const found = state.selectedBank?.find(joke => joke.id === Number(input));
+                const chosenId = Number(input);
+
+                if (isNaN(chosenId)) {
+                    logEvent('RESPONSE_SENT', {
+                        type: 'ERROR',
+                        message: 'Invalid input. Please enter a number.'
+                    });
+
+                    socket.write('Invalid input. Please enter a number.\n');
+                    return;
+                }
+
+                const found = state.selectedBank?.find(j => j.id === chosenId);
 
                 if (found) {
-                    socket.write(`\nJoke: ${found.joke}\n`);
-                    socket.write(`Punchline: ${found.punchline}\n`);
+                    logEvent('RESPONSE_SENT', {
+                        type: 'JOKE_RESPONSE',
+                        id: found.id
+                    });
+                    socket.write(`\n${found.joke}\n${found.punchline}\n`);
+
                 } else {
-                    socket.write(`\nInvalid ID for this Joke Bank. Try Again!\n`);
+                    logEvent('RESPONSE_SENT', {
+                        type: 'ERROR',
+                        message: 'Invalid ID for this bank.'
+                    });
+
+                    socket.write('Invalid ID for this bank.\n');
                 }
 
                 state.step = 'CHOOSE_BANK';
-                state.selectedBank = [];
+                delete state.selectedBank;
+
                 sendMainMenu();
             }
         });
 
-        socket.on('end', () => userStates.delete(socket));
-        socket.on('error', () => userStates.delete(socket));
+        socket.on('end', () => {
+            logEvent('DISCONNECT');
+            userStates.delete(socket);
+        });
+
+        socket.on('error', (err) => {
+            logEvent('ERROR', { message: err.message });
+            userStates.delete(socket);
+        });
     });
 
-    const PORT = 3000;
+    const PORT = Number(process.env.PORT);
     server.listen(PORT, '0.0.0.0', () => {
-        console.log(`\n=> Network Server Active! Listening on port ${PORT}`);
+        console.log(`\n=> Network Server Active! Port: ${PORT}`);
     });
 }
